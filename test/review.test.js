@@ -54,6 +54,19 @@ test('valid duplicates and reasons retained',()=>{
  const r=results([finding('C1'),finding('C2')]);Object.assign(r.adjudicator.findings[1],{disposition:'duplicate',duplicateOf:'C1',reason:'Same missing policy'});
  assert.equal(adjudicate(r).completion,'complete');assert.equal(adjudicate(r).findings[1].duplicateOf,'C1');
 });
+test('successful roles need coverage and evidence even when there are no findings',()=>{
+ for(const role of ['cold-reader','adversarial-reviewer','adjudicator']){
+  for(const field of ['coverage','evidence']){
+   const r=results();r[role][field]=[];
+   const report=adjudicate(r);
+   assert.equal(report.completion,'incomplete');assert.equal(report.readiness,'undetermined');
+   assert.match(report.coverageLimits.join(),new RegExp(`${role}.*${field}`));
+  }
+  const r=results();r[role].evidence=[null];
+  assert.match(adjudicate(r).coverageLimits.join(),new RegExp(`evidence.*${role}`));
+ }
+ assert.equal(adjudicate(results()).readiness,'ready');
+});
 test('reports are immutable, stale and human/machine agree',async()=>{
  const t=await fixture();const a=await snapshot(t);const run=await createRun(t,a,{harness:'codex',harnessVersion:'test'});
  await writeFile(path.join(t.root,'plan.md'),'changed');const b=await snapshot(t);
@@ -79,6 +92,49 @@ test('revision acceptance, subset, decision gate, concurrency and outcomes',asyn
  assert.equal(revision.freshness,'stale');assert.match(revision.next,/wait for explicit/);
  assert.equal(JSON.parse(await readFile(path.join(run.dir,'report.json'))).freshness,'current');
 });
+test('revision preparation requires boolean acceptance and a unique array of IDs',async()=>{
+ const t=await fixture(),inputs=await snapshot(t);
+ const run=await createRun(t,inputs,{harness:'codex',harnessVersion:'test'});
+ const report=await finalize(run.dir,results([finding()]),inputs);
+ const offer=revisionOffer(report,[{findingId:'C1',path:'plan.md',description:'Specify retries'}]);
+ for(const explicitAcceptance of ['false','true',1,{},[],null]){
+  await assert.rejects(prepareRevision(run.record,offer,{explicitAcceptance,acceptedIds:['C1']}),/explicitAcceptance must be a boolean/);
+ }
+ for(const acceptedIds of ['C1',null,{},[null],['C1','C1']]){
+  await assert.rejects(prepareRevision(run.record,offer,{explicitAcceptance:true,acceptedIds}),/unique array of finding IDs/);
+ }
+ assert.deepEqual(await prepareRevision(run.record,offer,{explicitAcceptance:false,acceptedIds:['C1']}),[]);
+ assert.deepEqual(await prepareRevision(run.record,offer,{explicitAcceptance:true,acceptedIds:[]}),[]);
+ assert.equal((await prepareRevision(run.record,offer,{explicitAcceptance:true,acceptedIds:['C1']})).length,1);
+ assert.equal(await readFile(path.join(t.root,'plan.md'),'utf8'),inputs.files[0].content);
+});
+test('revision records reject nonactionable approvals and contradictory or empty applied outcomes',async()=>{
+ const t=await fixture(),inputs=await snapshot(t);
+ const run=await createRun(t,inputs,{harness:'codex',harnessVersion:'test'});
+ const r=results([finding('C1'),finding('C2'),finding('C3'),finding('C4')]);
+ r.adjudicator.findings[1].disposition='dismissed';
+ Object.assign(r.adjudicator.findings[2],{disposition:'duplicate',duplicateOf:'C1'});
+ Object.assign(r.adjudicator.findings[3],{disposition:'unresolved',blocking:true});
+ await finalize(run.dir,r,inputs);
+ const outcome=(id,status='applied',paths=['plan.md'])=>({id,status,paths,reason:'User chose a retry limit'});
+ const names=await readdir(run.dir);
+ for(const id of ['C2','C3']){
+  await assert.rejects(recordRevision(run.dir,{acceptedIds:[id],outcomes:[outcome(id)]},inputs),/not actionable/);
+ }
+ for(const acceptedIds of ['C1',[null],['C1','C1']]){
+  await assert.rejects(recordRevision(run.dir,{acceptedIds,outcomes:[]},inputs),/unique array of finding IDs/);
+ }
+ for(const outcomes of [[outcome('C1'),outcome('C1','deferred')],[outcome('C1','applied',[])],[null]]){
+  await assert.rejects(recordRevision(run.dir,{acceptedIds:['C1'],outcomes},inputs),/Invalid revision outcome/);
+ }
+ await assert.rejects(recordRevision(run.dir,{acceptedIds:['C1'],outcomes:[]},inputs),/Missing revision outcome: C1/);
+ await assert.rejects(recordRevision(run.dir,{acceptedIds:[],outcomes:[outcome('C1')]},inputs),/Unaccepted revision/);
+ assert.deepEqual(await readdir(run.dir),names);
+ // Unresolved findings can be recorded after an explicit user choice; retain other dispositions as deferred.
+ const record=await recordRevision(run.dir,{acceptedIds:['C1','C4'],outcomes:[outcome('C1'),outcome('C2','deferred',[]),outcome('C3','deferred',[]),outcome('C4','unresolved',[])]},inputs);
+ assert.deepEqual(record.acceptedIds,['C1','C4']);
+ assert.equal(record.outcomes.length,4);
+});
 test('review paths allow root ancestor aliases while rejecting symlinks inside the change',async()=>{
  const t=await fixture();const alias=t.root+'-alias';await symlink(t.root,alias,'junction');
  const change=path.join(alias,'change');await mkdir(change);await writeFile(path.join(change,'plan.md'),'Plan');
@@ -94,6 +150,8 @@ test('incomplete candidates do not seal a run and completed results can follow',
  const mutations=[
   [r=>delete r.adjudicator,/Missing adjudicator/],
   [r=>r.adjudicator.coverage=null,/Malformed adjudicator/],
+  [r=>r.adjudicator.coverage=[],/adjudicator.*coverage/],
+  [r=>r['cold-reader'].evidence=[],/cold-reader.*evidence/],
   [r=>Object.assign(r['cold-reader'],{status:'failed',error:'timeout'}),/timeout/],
   [r=>r.adjudicator.findings=[],/omitted C1/],
   [r=>r['adversarial-reviewer'].findings=[finding()],/IDs collide/],
