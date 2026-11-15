@@ -21,7 +21,7 @@ test('packed package installs all adapters and bundled runtime works away from p
  const pkg=path.join(prefix,'node_modules/openspec-goldfish');
  const metadata=JSON.parse(await readFile(path.join(pkg,'package.json'),'utf8'));
  assert.equal(metadata.license,'MIT');assert.equal(metadata.name,'openspec-goldfish');
- assert.match(metadata.repository.url,/github.com\/mehdishahdoost\/openspec-goldfish/);
+ assert.match(metadata.repository.url,/github.com\/writebyhumans1\/openspec-goldfish/);
  assert.match(await readFile(path.join(pkg,'LICENSE'),'utf8'),/MIT License/);
  const {install}=await import(pathToFileURL(path.join(pkg,'src/install/index.js')).href);
  const {locations}=await import(pathToFileURL(path.join(pkg,'src/adapters/index.js')).href);

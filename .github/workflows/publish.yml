@@ -1,15 +1,37 @@
 name: Publish npm
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: npm-release
   cancel-in-progress: false
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      revision: ${{ steps.release.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Prepare version and push main and tag atomically
+        id: release
+        run: node scripts/prepare-release.mjs
   verify:
-    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -19,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.prepare.outputs.revision }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -27,19 +49,20 @@ jobs:
       - run: node scripts/check-release.mjs "$RELEASE_TAG"
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       - run: npm test
+      - run: npm run check
       - run: npm pack --dry-run
   publish:
-    needs: verify
+    needs: [prepare, verify]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.prepare.outputs.revision }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -48,8 +71,14 @@ jobs:
       - run: npm install --global npm@11
       - run: node scripts/check-release.mjs "$RELEASE_TAG"
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-      - run: npm test
-      - run: npm pack --pack-destination "$RUNNER_TEMP"
-      - name: Publish or verify an already bootstrapped release
-        run: node scripts/publish-release.mjs "$RUNNER_TEMP"
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      - name: Publish or verify this exact release
+        run: node scripts/publish-release.mjs
+      - name: Create GitHub release after npm succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG"; then
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "$RELEASE_TAG"
+          fi
