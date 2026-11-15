@@ -27,10 +27,10 @@
   "author": "Mehdi Shahdoost",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mehdishahdoost/openspec-goldfish.git"
+    "url": "git+https://github.com/writebyhumans1/openspec-goldfish.git"
   },
   "bugs": {
-    "url": "https://github.com/mehdishahdoost/openspec-goldfish/issues"
+    "url": "https://github.com/writebyhumans1/openspec-goldfish/issues"
   },
   "homepage": "https://mehdishahdoost.github.io/openspec-goldfish/",
   "keywords": [
