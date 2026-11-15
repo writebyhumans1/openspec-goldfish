@@ -20,7 +20,7 @@ Each role returns one JSON object. Empty findings are valid. Do not wrap JSON in
 }
 ```
 
-Role is cold-reader, adversarial-reviewer, or adjudicator. Reconstruction MUST be a nonempty string for a complete cold read; objects and arrays are invalid. Evidence records only actually consulted sources with paths and sections/lines (or URLs). Coverage is an array of strings. A failed role uses status failed, error explaining why, and the same arrays (possibly empty). The coordinator can synthesize a failed result on timeout, never a successful critique.
+Role is cold-reader, adversarial-reviewer, or adjudicator. Reconstruction MUST be a nonempty string for a complete cold read; objects and arrays are invalid. Evidence records only actually consulted sources with paths and sections/lines (or URLs). Coverage is an array of nonempty strings. A complete role requires at least one coverage entry and one evidence record, including when it finds no issues. Empty findings are valid; empty coverage or evidence cannot establish completion. A failed role uses status failed, error explaining why, and the same arrays (possibly empty). The coordinator can synthesize a failed result on timeout, never a successful critique.
 
 Adjudicator findings additionally contain disposition (accepted/dismissed/duplicate/unresolved) and reason. Unresolved findings require boolean blocking and a reason explaining it; duplicates require duplicateOf pointing to a nonduplicate finding ID. Retain every original finding ID. New adjudicator findings use J-prefixed IDs. Use C and A prefixes for reviewer IDs. Critic findings must not be discarded before adjudication.
 

@@ -14,7 +14,11 @@ Reports live at `<resolved-change>/.goldfish/reviews/<run-id>/`:
 
 Each role has ten minutes. Required role failure, invalid output or unavailable isolation produces incomplete/undetermined. A complete review is ready only without accepted critical/major findings or blocking questions. Minor findings do not block. Evidence is reviewed by the adjudicator; helpers validate its structure, not semantic truth.
 
+Complete role results require nonempty coverage and evidence inventories, even for zero findings. Empty inventories reject normal finalization before output is written; failed roles may retain empty inventories. Rejected runs can still be finalized with valid results.
+
 Only explicit acceptance authorizes revision. The coordinator names proposed edits, allows a subset, and asks about product choices. It rereads before editing and preserves unrelated changes. Old reports remain immutable. Changed inputs make the verdict stale; another review requires manual invocation. No implementation or automatic re-review occurs.
+
+Revision preparation requires a JSON boolean for `explicitAcceptance` and a unique array of finding IDs for `acceptedIds`; strings such as `"false"` are rejected. Revision records reject approval of dismissed or duplicate findings, duplicate outcomes, missing outcomes for accepted IDs, and applied outcomes without acceptance or a planning path. An unresolved finding can be recorded after an explicit user choice, with the choice explained in the outcome reason. These checks validate the submitted record; the coordinator remains responsible for obtaining the user's actual acceptance and accurately describing edits.
 
 For deterministic helper commands and JSON examples, see [workflow](../resources/protocol/workflow.md) and [result contract](../resources/protocol/result-contract.md). Installed copies live alongside SKILL.md. Use absolute runtime paths when running from a project. The helpers never call model APIs.
 

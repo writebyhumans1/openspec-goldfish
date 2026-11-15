@@ -45,6 +45,14 @@ cp.spawnSync=(cmd,args,opts)=>{
  results.adjudicator=role('adjudicator');await writeFile(file,JSON.stringify(results));
  r=finalize(dir,'--incomplete-reason','failure');assert.equal(r.status,1);assert.match(r.stderr,/normal finalization/);
  assert.deepEqual((await readdir(dir)).sort(),['cold-packet.json','inputs.json']);
+ for(const field of ['coverage','evidence']){
+  const previous=results.adjudicator[field];results.adjudicator[field]=[];
+  await writeFile(file,JSON.stringify(results));
+  r=finalize(dir);assert.equal(r.status,1);assert.match(r.stderr,new RegExp(`adjudicator.*${field}`));
+  assert.deepEqual((await readdir(dir)).sort(),['cold-packet.json','inputs.json']);
+  results.adjudicator[field]=previous;
+ }
+ await writeFile(file,JSON.stringify(results));
  r=finalize(dir);assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout).completion,'complete');
  const report=await readFile(path.join(dir,'report.json'),'utf8');
  r=finalize(dir);assert.equal(r.status,1);assert.match(r.stderr,/EEXIST/);assert.equal(await readFile(path.join(dir,'report.json'),'utf8'),report);
@@ -55,4 +63,29 @@ cp.spawnSync=(cmd,args,opts)=>{
  assert.match(saved.coverageLimits.join(),/Missing adjudicator/);
  assert.match(await readFile(path.join(failed,'report.md'),'utf8'),/Incomplete reason: Adjudicator timed out/);
  assert.deepEqual(JSON.parse(await readFile(path.join(failed,'results.json'))),results);
+
+ // Run the revision boundary checks through the installed CLI as well as core tests.
+ const revisionRun=start();
+ const finding=id=>({id,severity:'major',location:'plan.md',scenario:'Export times out',impact:'Retry behavior is undefined',resolution:'Specify retry limit'});
+ results['cold-reader'].findings=[finding('C1'),finding('C2')];
+ results.adjudicator={...role('adjudicator'),findings:results['cold-reader'].findings.map(f=>({...f,disposition:f.id==='C1'?'accepted':'dismissed',reason:'Checked the export contract'}))};
+ await writeFile(file,JSON.stringify(results));
+ r=finalize(revisionRun);assert.equal(r.status,0,r.stderr);
+ const offer=path.join(cwd,'offer.json'),acceptance=path.join(cwd,'acceptance.json'),outcomes=path.join(cwd,'outcomes.json');
+ await writeFile(offer,JSON.stringify({runId:JSON.parse(r.stdout).runId,edits:[{findingId:'C1',path:'plan.md',description:'Specify retry limit'}]}));
+ const prepare=()=>invoke(['prepare-revision','--run',revisionRun,'--offer',offer,'--acceptance',acceptance]);
+ await writeFile(acceptance,JSON.stringify({explicitAcceptance:'false',acceptedIds:['C1']}));
+ r=prepare();assert.equal(r.status,1);assert.match(r.stderr,/explicitAcceptance must be a boolean/);
+ await writeFile(acceptance,JSON.stringify({explicitAcceptance:false,acceptedIds:['C1']}));
+ r=prepare();assert.equal(r.status,0,r.stderr);assert.deepEqual(JSON.parse(r.stdout),[]);
+ await writeFile(acceptance,JSON.stringify({explicitAcceptance:true,acceptedIds:['C1']}));
+ r=prepare();assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout)[0].findingId,'C1');
+ const record=()=>invoke(['record-revision','--run',revisionRun,'--outcomes',outcomes]);
+ const before=await readdir(revisionRun);
+ await writeFile(outcomes,JSON.stringify({acceptedIds:['C2'],outcomes:[{id:'C2',status:'applied',paths:['plan.md'],reason:'Incorrectly approved dismissed finding'}]}));
+ r=record();assert.equal(r.status,1);assert.match(r.stderr,/not actionable/);
+ assert.deepEqual(await readdir(revisionRun),before);
+ await writeFile(plan,'Export profile. Retry at most twice.');
+ await writeFile(outcomes,JSON.stringify({acceptedIds:['C1'],outcomes:[{id:'C1',status:'applied',paths:['plan.md'],reason:'User chose two retries'}]}));
+ r=record();assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout).freshness,'stale');
 }

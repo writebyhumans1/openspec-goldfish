@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {readFile,writeFile,mkdir,lstat,readdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,lstat} from 'node:fs/promises';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync,openSync,closeSync,readFileSync,rmSync} from 'node:fs';
@@ -92,6 +92,7 @@ const nonempty=v=>typeof v==='string'&&v.trim().length>0;
 export function validateResult(result,role) {
  if(!result||result.role!==role||!['complete','failed'].includes(result.status)||!Array.isArray(result.findings)||!Array.isArray(result.coverage)||!result.coverage.every(nonempty))throw new Error(`Malformed ${role} result`);
  if(result.status==='failed'&&!nonempty(result.error))throw new Error(`Missing ${role} failure reason`);
+ if(result.status==='complete'&&!result.coverage.length)throw new Error(`Complete ${role} result requires coverage`);
  if(role==='cold-reader'&&result.status==='complete'&&!nonempty(result.reconstruction))throw new Error('Cold reader must reconstruct intent');
  const ids=new Set();
  for(const f of result.findings){
@@ -103,7 +104,8 @@ export function validateResult(result,role) {
    if(f.disposition==='duplicate'&&!nonempty(f.duplicateOf))throw new Error(`Missing canonical ID: ${f.id}`);
   }
  }
- if(!Array.isArray(result.evidence)||!result.evidence.every(e=>nonempty(e.path)&&nonempty(e.reference)))throw new Error(`Missing evidence inventory: ${role}`);
+ if(!Array.isArray(result.evidence)||!result.evidence.every(e=>e&&nonempty(e.path)&&nonempty(e.reference)))throw new Error(`Missing evidence inventory: ${role}`);
+ if(result.status==='complete'&&!result.evidence.length)throw new Error(`Complete ${role} result requires evidence`);
  return result;
 }
 export function adjudicate(results,{stale=false}={}) {
@@ -153,8 +155,13 @@ export function revisionOffer(report,edits){
  for(const edit of edits)if(!accepted.has(edit.findingId)||!nonempty(edit.path)||!nonempty(edit.description))throw new Error('Revision offer must reference accepted findings and explicit edits');
  return {runId:report.runId,edits,question:'Apply these planning edits? Accept all, select finding IDs, or decline.'};
 }
+function validateAcceptedIds(acceptedIds) {
+ if(!Array.isArray(acceptedIds)||!acceptedIds.every(nonempty)||new Set(acceptedIds).size!==acceptedIds.length)throw new Error('Revision acceptance must be a unique array of finding IDs');
+}
 export async function prepareRevision(inputs,offer,{acceptedIds=[],explicitAcceptance=false}={}){
+ if(typeof explicitAcceptance!=='boolean')throw new Error('explicitAcceptance must be a boolean');
  if(!explicitAcceptance)return [];
+ validateAcceptedIds(acceptedIds);
  if(offer.runId!==inputs.runId)throw new Error('Revision offer belongs to another run');
  if(!acceptedIds.every(id=>offer.edits.some(e=>e.findingId===id)))throw new Error('Unknown accepted finding');
  const selected=offer.edits.filter(e=>acceptedIds.includes(e.findingId));
@@ -172,15 +179,24 @@ export async function prepareRevision(inputs,offer,{acceptedIds=[],explicitAccep
 }
 export async function recordRevision(dir,{acceptedIds,outcomes},currentInputs){
  const inputs=JSON.parse(await readFile(path.join(dir,'inputs.json'),'utf8'));await contained(inputs.changeRoot,dir);
- if(!Array.isArray(acceptedIds)||!Array.isArray(outcomes))throw new Error('Revision acceptance and outcomes required');
+ validateAcceptedIds(acceptedIds);
+ if(!Array.isArray(outcomes))throw new Error('Revision outcomes required');
  const report=JSON.parse(await readFile(path.join(dir,'report.json'),'utf8'));
- const validIds=new Set(report.findings.map(f=>f.id));
- for(const id of acceptedIds)if(!validIds.has(id))throw new Error('Unknown accepted finding');
+ const findings=new Map(report.findings.map(f=>[f.id,f]));
+ for(const id of acceptedIds){
+  if(!findings.has(id))throw new Error('Unknown accepted finding');
+  // An explicit user decision may resolve an unanswered finding. Dismissals
+  // and duplicates must not be turned into independent approved revisions.
+  if(!['accepted','unresolved'].includes(findings.get(id).disposition))throw new Error(`Finding is not actionable: ${id}`);
+ }
+ const recordedIds=new Set();
  for(const o of outcomes){
-  if(!validIds.has(o.id)||!['applied','deferred','unresolved'].includes(o.status)||!nonempty(o.reason)||!Array.isArray(o.paths))throw new Error('Invalid revision outcome');
+  if(!o||!findings.has(o.id)||recordedIds.has(o.id)||!['applied','deferred','unresolved'].includes(o.status)||!nonempty(o.reason)||!Array.isArray(o.paths)||(o.status==='applied'&&!o.paths.length))throw new Error('Invalid revision outcome');
+  recordedIds.add(o.id);
   if(o.status==='applied'&&!acceptedIds.includes(o.id))throw new Error('Unaccepted revision');
   for(const p of o.paths){if(!inputs.files.some(f=>f.path===p))throw new Error('Revision outside planning artifacts');await contained(inputs.changeRoot,path.join(inputs.changeRoot,p));}
  }
+ for(const id of acceptedIds)if(!recordedIds.has(id))throw new Error(`Missing revision outcome: ${id}`);
  const record={runId:inputs.runId,createdAt:new Date().toISOString(),acceptedIds,outcomes,freshness:inputs.fingerprint===currentInputs.fingerprint?'current':'stale',next:'Offer a fresh review; wait for explicit invocation.'};
  const filename=path.join(dir,`revision-${randomUUID()}.json`);
  await writeFile(filename,JSON.stringify(record,null,2)+'\n',{flag:'wx'});return record;
