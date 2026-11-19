@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {readFile,writeFile,mkdir,lstat} from 'node:fs/promises';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import crossSpawn from 'cross-spawn';
 import {mkdtempSync,openSync,closeSync,readFileSync,rmSync} from 'node:fs';
 import os from 'node:os';
 export const roles=['cold-reader','adversarial-reviewer','adjudicator'];
@@ -23,8 +23,7 @@ export function runOpenSpec(args,{cwd=process.cwd(),store}={}) {
  const out=path.join(temp,'stdout'),err=path.join(temp,'stderr');
  const outFd=openSync(out,'w'),errFd=openSync(err,'w');
  let result;
- // Windows installs npm CLI commands as .cmd shims, which need a shell to run.
- try{result=spawnSync('openspec',command,{cwd,stdio:['ignore',outFd,errFd],shell:process.platform==='win32'});}
+ try{result=crossSpawn.sync('openspec',command,{cwd,stdio:['ignore',outFd,errFd]});}
  finally{closeSync(outFd);closeSync(errFd);}
  try{
   const stdout=readFileSync(out,'utf8'),stderr=readFileSync(err,'utf8');
