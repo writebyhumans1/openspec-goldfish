@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,mkdir,symlink,readdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,mkdir,symlink,readdir,chmod,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {discover,validatePlanning,snapshot,coldPacket,createRun,adjudicate,finalize,revisionOffer,prepareRevision,recordRevision} from '../src/review/core.js';
+import {discover,validatePlanning,snapshot,coldPacket,createRun,adjudicate,finalize,revisionOffer,prepareRevision,recordRevision,runOpenSpec} from '../src/review/core.js';
 const good=(role,findings=[])=>({role,status:'complete',reconstruction:'Scope and acceptance reconstructed',coverage:['plan'],evidence:[{path:'plan.md',reference:'Scope'}],findings});
 const finding=(id='C1',severity='major')=>({id,severity,location:'plan.md: Scope',scenario:'Request times out',impact:'Unknown retry behavior',resolution:'Specify retry contract'});
 const results=(findings=[])=>({'cold-reader':good('cold-reader',findings),'adversarial-reviewer':good('adversarial-reviewer'),adjudicator:good('adjudicator',findings.map(f=>({...f,disposition:'accepted',reason:'No retry policy in Scope'})))});
@@ -12,6 +12,17 @@ async function fixture(){
  const status={changeRoot:root,schemaName:'custom',applyRequires:['plan'],artifacts:[{id:'plan',status:'done',requires:[]},{id:'optional',status:'skipped',requires:[]}],artifactPaths:{plan:{existingOutputPaths:[path.join(root,'plan.md')]}}};
  return {cwd:root,root,change:'sample',status,required:['plan']};
 }
+test('OpenSpec launcher resolves PATH command shims without a shell option',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'goldfish cli shim-'));
+ try{
+  const windows=process.platform==='win32',command=path.join(root,windows?'openspec.cmd':'openspec');
+  await writeFile(command,windows?'@echo off\r\n@echo {"ok":true}\r\n':'#!/bin/sh\nprintf \'%s\\n\' \'{"ok":true}\'\n');
+  if(!windows)await chmod(command,0o755);
+  const pathKey=Object.keys(process.env).find(key=>key.toLowerCase()==='path')||'PATH';
+  const env={...process.env,[pathKey]:`${root}${path.delimiter}${process.env[pathKey]||''}`};
+  assert.deepEqual(runOpenSpec(['context'],{cwd:root,env}),{ok:true});
+ }finally{await rm(root,{recursive:true,force:true});}
+});
 test('discovery handles metadata, stores, selection and progress',async()=>{
  const t=await fixture();const seen=[];
  const execute=(args,opts)=>{seen.push(opts);if(args[0]==='context')return {root:{path:t.root}};if(args[0]==='list')return {changes:[{name:'sample'}]};if(args[0]==='status')return t.status;return {state:'ready',progress:{complete:0}};};

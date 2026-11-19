@@ -11,6 +11,7 @@ for(const harness of ['claude','codex','devin'])for(const scope of ['local','glo
  const plan=await render(options);await install(options);await install(options);
  assert.match(await readFile(path.join(plan.root,plan.skill,'SKILL.md'),'utf8'),/explicit user invocation/);
  assert.ok(plan.files[`${plan.skill}/runtime/tool.js`]);
+ assert.ok(plan.files[`${plan.skill}/runtime/node_modules/cross-spawn/index.js`]);
  for(const role of roles){
  const ext=harness==='codex'?'toml':'md';const body=plan.files[`${plan.agents}/goldfish-${role}.${ext}`];
  assert.match(body,/Never edit|never edit|Do not.*edit|Never.*edit/i);

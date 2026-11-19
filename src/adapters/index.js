@@ -2,8 +2,28 @@ import path from 'node:path';
 import os from 'node:os';
 import {readFile,readdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
 export const roles=['cold-reader','adversarial-reviewer','adjudicator'];
 const packageRoot=fileURLToPath(new URL('../../',import.meta.url));
+const packageRequire=createRequire(import.meta.url);
+async function addRuntimeDependency(files,name,runtimeRoot,seen=new Set()) {
+ if(seen.has(name))return;
+ seen.add(name);
+ const packageFile=packageRequire.resolve(`${name}/package.json`);
+ const root=path.dirname(packageFile),metadata=JSON.parse(await readFile(packageFile,'utf8'));
+ for(const dependency of Object.keys(metadata.dependencies||{}))await addRuntimeDependency(files,dependency,runtimeRoot,seen);
+ const visit=async dir=>{
+  for(const entry of await readdir(dir,{withFileTypes:true})){
+   const source=path.join(dir,entry.name),relative=path.relative(root,source);
+   if(entry.isDirectory()){
+    if(!['test','tests','coverage','.github'].includes(entry.name))await visit(source);
+   }else if(entry.isFile()&&(/\.(?:c?js|mjs|json|node)$/.test(entry.name)||/^licen[cs]e(?:\.|$)/i.test(entry.name))){
+    files[`${runtimeRoot}/node_modules/${name}/${relative.split(path.sep).join('/')}`]=await readFile(source);
+   }
+  }
+ };
+ await visit(root);
+}
 export function locations({harness,scope,cwd=process.cwd(),home=os.homedir(),env=process.env,platform=process.platform}) {
  if(!['claude','codex','devin'].includes(harness)||!['local','global'].includes(scope)) throw new Error('Invalid harness or scope');
  if(scope==='local') return {root:path.resolve(cwd),skill:`${harness==='codex'?'.agents':'.'+harness}/skills/openspec-goldfish`,agents:`.${harness}/agents`};
@@ -33,6 +53,7 @@ export async function render(options) {
  // Ship deterministic helpers inside the installed skill; no npx download during review.
  for(const file of await readdir(path.join(packageRoot,'src/review'))) if(file.endsWith('.js')) files[`${loc.skill}/runtime/${file}`]=await readFile(path.join(packageRoot,'src/review',file),'utf8');
  files[`${loc.skill}/runtime/package.json`]='{"type":"module"}\n';
+ await addRuntimeDependency(files,'cross-spawn',`${loc.skill}/runtime`);
  return {...loc,files};
 }
 export function delegation(harness) {

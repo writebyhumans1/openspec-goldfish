@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,readdir,mkdir} from 'node:fs/promises';
 import {openSync,closeSync,readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
+import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -14,16 +15,16 @@ export async function exerciseFinalization(runtime,{packageVersion}={}){
  const plan=path.join(changeRoot,'plan.md');await writeFile(plan,'Export profile');
  const status={changeRoot,schemaName:'custom',applyRequires:['plan'],artifacts:[{id:'plan',status:'done',requires:[]}],artifactPaths:{plan:{existingOutputPaths:[plan]}}};
  const hook=path.join(cwd,'metadata.mjs');
- await writeFile(hook,`import cp from 'node:child_process';
+ const crossSpawn=createRequire(runtime).resolve('cross-spawn');
+ await writeFile(hook,`import crossSpawn from ${JSON.stringify(pathToFileURL(crossSpawn).href)};
 import {writeSync} from 'node:fs';
-import {syncBuiltinESMExports} from 'node:module';
-const original=cp.spawnSync;
-cp.spawnSync=(cmd,args,opts)=>{
+const original=crossSpawn.sync;
+crossSpawn.sync=(cmd,args,opts)=>{
  if(cmd!=='openspec')return original(cmd,args,opts);
  const status=${JSON.stringify(status)};
  const value=args[0]==='context'?{root:{path:${JSON.stringify(cwd)}}}:args[0]==='list'?{changes:[{name:'sample'}]}:args[0]==='status'?status:{state:'ready',progress:{complete:0}};
  writeSync(opts.stdio[1],JSON.stringify(value));return {status:0};
-};syncBuiltinESMExports();`);
+};`);
  const invoke=(args)=>{
   const out=path.join(cwd,'stdout'),err=path.join(cwd,'stderr'),fds=[openSync(out,'w'),openSync(err,'w')];
   let r;try{r=spawnSync(process.execPath,['--import',pathToFileURL(hook).href,runtime,...args],{cwd,stdio:['ignore',...fds]});}finally{fds.forEach(closeSync);}
