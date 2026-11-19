@@ -19,7 +19,8 @@ import {writeSync} from 'node:fs';
 import {syncBuiltinESMExports} from 'node:module';
 const original=cp.spawnSync;
 cp.spawnSync=(cmd,args,opts)=>{
- if(cmd!=='openspec')return original(cmd,args,opts);
+ const openspec=cmd==='openspec'||(process.platform==='win32'&&String(cmd).toLowerCase()==='cmd.exe'&&args.join(' ').toLowerCase().includes('openspec'));
+ if(!openspec)return original(cmd,args,opts);
  const status=${JSON.stringify(status)};
  const value=args[0]==='context'?{root:{path:${JSON.stringify(cwd)}}}:args[0]==='list'?{changes:[{name:'sample'}]}:args[0]==='status'?status:{state:'ready',progress:{complete:0}};
  writeSync(opts.stdio[1],JSON.stringify(value));return {status:0};

@@ -17,13 +17,13 @@ export async function contained(root,file) {
  }
  return target;
 }
-export function runOpenSpec(args,{cwd=process.cwd(),store}={}) {
+export function runOpenSpec(args,{cwd=process.cwd(),store,env=process.env}={}) {
  const command=[...args,'--json',...(store?['--store',store]:[])];
  const temp=mkdtempSync(path.join(os.tmpdir(),'goldfish-cli-'));
  const out=path.join(temp,'stdout'),err=path.join(temp,'stderr');
  const outFd=openSync(out,'w'),errFd=openSync(err,'w');
  let result;
- try{result=crossSpawn.sync('openspec',command,{cwd,stdio:['ignore',outFd,errFd]});}
+ try{result=crossSpawn.sync('openspec',command,{cwd,env,stdio:['ignore',outFd,errFd]});}
  finally{closeSync(outFd);closeSync(errFd);}
  try{
   const stdout=readFileSync(out,'utf8'),stderr=readFileSync(err,'utf8');
