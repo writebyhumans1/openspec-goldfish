@@ -23,7 +23,8 @@ export function runOpenSpec(args,{cwd=process.cwd(),store}={}) {
  const out=path.join(temp,'stdout'),err=path.join(temp,'stderr');
  const outFd=openSync(out,'w'),errFd=openSync(err,'w');
  let result;
- try{result=spawnSync('openspec',command,{cwd,stdio:['ignore',outFd,errFd]});}
+ // Windows installs npm CLI commands as .cmd shims, which need a shell to run.
+ try{result=spawnSync('openspec',command,{cwd,stdio:['ignore',outFd,errFd],shell:process.platform==='win32'});}
  finally{closeSync(outFd);closeSync(errFd);}
  try{
   const stdout=readFileSync(out,'utf8'),stderr=readFileSync(err,'utf8');
