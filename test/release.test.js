@@ -32,7 +32,7 @@ test('automatic release versions advance tags and respect explicit version bumps
  assert.throws(()=>nextVersion('1.0.0-beta.1',[]),/stable/);
 });
 
-test('automatic release pushes matching version, runtime and tag and resumes on rerun',()=>{
+test('automatic release prepares a PR branch, then tags only after the version is merged',()=>{
  const cwd=mkdtempSync(path.join(os.tmpdir(),'goldfish-auto-release-'));
  const git=(...args)=>execFileSync('git',args,{cwd,stdio:'pipe',encoding:'utf8'}).trim();
  try{
@@ -44,16 +44,24 @@ test('automatic release pushes matching version, runtime and tag and resumes on 
   run('switch','-c','main');
   execFileSync(process.execPath,['-e',`require('fs').mkdirSync('src/review',{recursive:true})`],{cwd:work});
   writeFileSync(path.join(work,'package.json'),'{"version":"0.1.1"}\n');
+  writeFileSync(path.join(work,'package-lock.json'),JSON.stringify({version:'0.1.1',packages:{'':{version:'0.1.1'}}})+'\n');
   writeFileSync(path.join(work,'src/review/core.js'),"export const packageVersion='0.1.1';\n");
   run('add','.');run('commit','-m','initial');run('tag','v0.1.1');run('push','origin','main','--tags');
   writeFileSync(path.join(work,'feature'),'merged change');run('add','.');run('commit','-m','feature');run('push','origin','main');
   const script=new URL('../scripts/prepare-release.mjs',import.meta.url);
-  const invoke=()=>execFileSync(process.execPath,[fileURLToPath(script)],{cwd:work,stdio:'pipe'});
-  invoke();const revision=run('rev-parse','HEAD');
-  assert.equal(run('show','v0.1.2:package.json'),'{\n  "version": "0.1.2"\n}');
-  assert.match(run('show','v0.1.2:src/review/core.js'),/packageVersion='0.1.2'/);
-  assert.equal(run('rev-parse','origin/main'),revision);
-  assert.equal(run('rev-parse','v0.1.2'),revision);
+  const invoke=()=>execFileSync(process.execPath,[fileURLToPath(script)],{cwd:work,stdio:'pipe',encoding:'utf8'});
+  const base=run('rev-parse','HEAD'),first=invoke().trim().split(/\s+/);assert.equal(first[0],'pr');run('fetch','origin');
+  const branch=first[3],revision=first[2];assert.equal(branch,`release/v0.1.2-${base.slice(0,7)}`);
+  assert.notEqual(run('rev-parse','origin/main'),revision);
+  assert.equal(run('show',`origin/${branch}:package.json`),'{\n  "version": "0.1.2"\n}');
+  assert.match(run('show',`origin/${branch}:package-lock.json`),/"version": "0\.1\.2"/);
+  assert.match(run('show',`origin/${branch}:src/review/core.js`),/packageVersion='0.1.2'/);
+  assert.throws(()=>run('rev-parse','v0.1.2'));
+  run('reset','--hard','origin/main');
+  const rerun=invoke().trim().split(/\s+/);assert.equal(rerun[0],'pr');assert.equal(rerun[2],revision);assert.equal(rerun[3],branch);
+  run('fetch','origin');run('merge','--ff-only',`origin/${branch}`);run('push','origin','main');
+  const published=invoke().trim().split(/\s+/);assert.equal(published[0],'publish');assert.equal(published[1],'v0.1.2');
+  assert.equal(run('rev-parse','origin/main'),revision);assert.equal(run('rev-parse','v0.1.2'),revision);
   invoke();assert.equal(run('rev-parse','HEAD'),revision);
   assert.equal(run('status','--porcelain'),'');
  }finally{rmSync(cwd,{recursive:true,force:true});}
