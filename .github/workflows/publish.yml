@@ -66,6 +66,9 @@ jobs:
       pull-requests: write
       actions: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Open the version bump PR
         env:
           GH_TOKEN: ${{ github.token }}
