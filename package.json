@@ -1,6 +1,6 @@
 {
   "name": "openspec-goldfish",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Independent cold-read and adversarial review for OpenSpec proposals",
   "type": "module",
   "bin": {
