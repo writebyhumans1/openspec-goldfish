@@ -61,25 +61,18 @@ jobs:
     needs: [prepare, verify]
     if: needs.prepare.outputs.mode == 'pr'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      actions: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-      - name: Open the version bump PR
+      - name: Report the release PR branch
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
         run: |
-          existing=$(gh pr list --base main --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number')
-          if [ -z "$existing" ]; then
-            gh pr create --base main --head "$RELEASE_BRANCH" --title "chore: release $RELEASE_TAG" --body "Automated version bump. The release workflow has run the full Node.js 22/24 Linux, macOS, and Windows test matrix on this exact commit. Merge this PR to publish $RELEASE_TAG."
-          fi
-          gh workflow run test.yml --ref "$RELEASE_BRANCH"
+          {
+            echo "## Release PR required"
+            echo "The $RELEASE_TAG candidate passed the full Node.js 22/24 Linux, macOS, and Windows verification matrix. Repository policy prevents GITHUB_TOKEN from opening pull requests."
+            echo "Create a PR from \`$RELEASE_BRANCH\` into \`main\`: https://github.com/${GITHUB_REPOSITORY}/compare/main...${RELEASE_BRANCH}?expand=1"
+            echo "Merge that PR to resume tagging and publication."
+          } >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: [prepare, verify, create-release-pr]
     if: always() && needs.prepare.outputs.mode == 'publish' && needs.verify.result == 'success'
